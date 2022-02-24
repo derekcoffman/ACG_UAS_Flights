@@ -1,5 +1,4 @@
 import glob
-from operator import inv
 import os
 import json
 import struct
@@ -209,16 +208,11 @@ class DataEvent:
                         )
                         file_list = []
                         for bf in base_file_list:
-                            # print(f"{bf}, {path}")
                             pf = glob.glob(os.path.join(path, bf))
-                            # pf = glob.glob(bf)
                             for f in pf:
                                 file_list.append(f)
-                            # print(f"filelist: {file_list}")
                         for dayfile in file_list:
                             fname = os.path.join(path, dayfile)
-                            fname = dayfile
-                            print(fname)
                             data = self.load_piccolo_datafile(
                                 fname,
                                 # start_dt=self.get_start_dt(),
@@ -290,37 +284,36 @@ class DataEvent:
                     vars = None
                     if "variables" in cfg:
                         vars = cfg["variables"]
-                
                     ds = self.create_dataset(data, dims=cfg["dims"], vars=vars)
                     # ds = self.prepare_dataset(ds)
-                    if ds:
-                        ds.attrs["start_dt"] = self.get_start_dt()
-                        ds.attrs["end_dt"] = self.get_end_dt()
-                        # add timebase to ds - default is 1s
-                        try:
-                            ds.attrs["timebase"] = cfg["timebase"]
-                        except KeyError:
-                            ds.attrs["timebase"] = 1
 
-                        # # add extra time arrays: mid, end
-                        # tb = int(ds.attrs["timebase"] * 1000) # use ms
-                        # tb_mid = int(tb/2)
-                        # # print(tb)
-                        # ds.coords["time_mid"] = ds.time + np.timedelta64(tb_mid, "ms")
-                        # ds.coords["time_end"] = ds.time + np.timedelta64(tb, "ms")
-                        # ds["duration"] = xr.DataArray(np.full(ds.dims["time"], tb), coords={"time": ds.time.values}, dims=["time"], name="duration")
+                    ds.attrs["start_dt"] = self.get_start_dt()
+                    ds.attrs["end_dt"] = self.get_end_dt()
+                    # add timebase to ds - default is 1s
+                    try:
+                        ds.attrs["timebase"] = cfg["timebase"]
+                    except KeyError:
+                        ds.attrs["timebase"] = 1
 
-                        if cont_name not in datasystem:
-                            datasystem[cont_name] = dict()
-                        if "variables" in cfg:
-                            # datasystem[cont_name][name] = ds[cfg["variables"]]
-                            var_list = []
-                            for v in cfg["variables"]:
-                                var_list.append(v[1])
-                            datasystem[cont_name][name] = ds[var_list]
-                        else:
-                            datasystem[cont_name][name] = ds
-                        pass
+                    # # add extra time arrays: mid, end
+                    # tb = int(ds.attrs["timebase"] * 1000) # use ms
+                    # tb_mid = int(tb/2)
+                    # # print(tb)
+                    # ds.coords["time_mid"] = ds.time + np.timedelta64(tb_mid, "ms")
+                    # ds.coords["time_end"] = ds.time + np.timedelta64(tb, "ms")
+                    # ds["duration"] = xr.DataArray(np.full(ds.dims["time"], tb), coords={"time": ds.time.values}, dims=["time"], name="duration")
+
+                    if cont_name not in datasystem:
+                        datasystem[cont_name] = dict()
+                    if "variables" in cfg:
+                        # datasystem[cont_name][name] = ds[cfg["variables"]]
+                        var_list = []
+                        for v in cfg["variables"]:
+                            var_list.append(v[1])
+                        datasystem[cont_name][name] = ds[var_list]
+                    else:
+                        datasystem[cont_name][name] = ds
+                    pass
 
     def load_envds_datafile(self, file_name, data=None):
         if data is None:
@@ -332,57 +325,54 @@ class DataEvent:
 
         start_dt = self.get_start_dt()
         end_dt = self.get_end_dt()
-        try:
-            with open(file_name) as f:
-                # line = f.readline()
-                for line in f:
-                    # print(line)
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
+
+        with open(file_name) as f:
+            # line = f.readline()
+            for line in f:
+                # print(line)
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if "time" not in data:
+                    data["time"] = []
+
+                dup_index = None
+                try:
+                    dt = datetime.strptime(
+                        entry["DATA"]["DATETIME"], "%Y-%m-%dT%H:%M:%SZ"
+                    )
+                    if dt < start_dt or dt >= end_dt:
                         continue
 
-                    if "time" not in data:
-                        data["time"] = []
+                    if dt in data["time"]:
+                        dup_index = data["time"].index(dt)
+                        # print(f"len of data[time] = {len(data['time'])}")
+                        data["time"].pop(dup_index)
+                        # print(f"\tlen of data[time] = {len(data['time'])}")
 
-                    dup_index = None
+                    data["time"].append(dt)
+                except KeyError:
+                    continue
+
+                for key, dat in entry["DATA"]["MEASUREMENTS"].items():
+                    if key not in data:
+                        data[key] = []
+
                     try:
-                        dt = datetime.strptime(
-                            entry["DATA"]["DATETIME"], "%Y-%m-%dT%H:%M:%SZ"
-                        )
-                        if dt < start_dt or dt >= end_dt:
-                            continue
-
-                        if dt in data["time"]:
-                            dup_index = data["time"].index(dt)
-                            # print(f"len of data[time] = {len(data['time'])}")
-                            data["time"].pop(dup_index)
-                            # print(f"\tlen of data[time] = {len(data['time'])}")
-
-                        data["time"].append(dt)
+                        if dup_index:
+                            data[key].pop(dup_index)
+                        record = entry["DATA"]["MEASUREMENTS"][key]["VALUE"]
+                        data[key].append(record)
                     except KeyError:
-                        continue
+                        data[key].append(None)
+                    except TypeError:
+                        print(f"{key}, {dat}")
+                        data[key].append(None)
 
-                    for key, dat in entry["DATA"]["MEASUREMENTS"].items():
-                        if key not in data:
-                            data[key] = []
-
-                        try:
-                            if dup_index:
-                                data[key].pop(dup_index)
-                            record = entry["DATA"]["MEASUREMENTS"][key]["VALUE"]
-                            data[key].append(record)
-                        except KeyError:
-                            data[key].append(None)
-                        except TypeError:
-                            print(f"{key}, {dat}")
-                            data[key].append(None)
-
-                    if "METADATA" in entry:
-                        data["metadata"] = entry["METADATA"]
-        except FileNotFoundError:
-            print(f"load evnds: file not found: {file_name}")
-        
+                if "METADATA" in entry:
+                    data["metadata"] = entry["METADATA"]
         return data
 
     def load_piccolo_datafile(self, file_name, data=None):
@@ -398,87 +388,83 @@ class DataEvent:
         ds_end_dt = self.get_end_dt()
         varlist = []
         print(file_name)
-        try:
-            with open(file_name) as f:
-                # get header and variable list
-                line = f.readline().rstrip()
-                params = line.split(" ")
-                for par in params:
-                    # print(f"par: {par}, {par.split('>[')}, {par.split('>[')[0].replace('<','')}")
-                    parts = par.split(">")
-                    # print(f"{parts}, {len(parts)}")
-                    name = parts[0].replace("<", "")
-                    varlist.append(name)
-                    data[name] = []
-                    if len(parts) > 1 and parts[1]:
-                        units = parts[1].replace("[", "").replace("]", "")
-                        if "metadata" not in data:
-                            data["metadata"] = {"measurement_meta": {"primary": {}}}
-                        data["metadata"]["measurement_meta"]["primary"][name] = {"units": units}
-                        #     "measurement_meta": {"primary": {name: {"units": units}}}
-                        # }
+        with open(file_name) as f:
+            # get header and variable list
+            line = f.readline().rstrip()
+            params = line.split(" ")
+            for par in params:
+                # print(f"par: {par}, {par.split('>[')}, {par.split('>[')[0].replace('<','')}")
+                parts = par.split(">")
+                # print(f"{parts}, {len(parts)}")
+                name = parts[0].replace("<", "")
+                varlist.append(name)
+                data[name] = []
+                if len(parts) > 1 and parts[1]:
+                    units = parts[1].replace("[", "").replace("]", "")
+                    if "metadata" not in data:
+                        data["metadata"] = {"measurement_meta": {"primary": {}}}
+                    data["metadata"]["measurement_meta"]["primary"][name] = {"units": units}
+                    #     "measurement_meta": {"primary": {name: {"units": units}}}
+                    # }
 
-                for line in f:
-                    parts = line.rstrip().split(" ")
+            for line in f:
+                parts = line.rstrip().split(" ")
 
-                    for name, val in zip(varlist, parts):
-                        # sanity check for date
-                        # print(parts[1], start_dt)
-                        if (
-                            int(parts[1]) < ds_start_dt.year
-                            or int(parts[1]) > ds_end_dt.year
-                        ):
-                            continue
-                        try:
-                            data[name].append(float(val))
-                        except ValueError:
-                            data[name].append(None)
+                for name, val in zip(varlist, parts):
+                    # sanity check for date
+                    # print(parts[1], start_dt)
+                    if (
+                        int(parts[1]) < ds_start_dt.year
+                        or int(parts[1]) > ds_end_dt.year
+                    ):
+                        continue
+                    try:
+                        data[name].append(float(val))
+                    except ValueError:
+                        data[name].append(None)
 
-                base_ms = data["Clock"][0]
-                # fulldate = fulldate + datetime.timedelta(milliseconds=500)
-                yr = data["Year"][0]
-                mo = data["Month"][0]
-                da = data["Day"][0]
-                hr = data["Hours"][0]
-                mi = data["Minutes"][0]
-                se = data["Seconds"][0]
+            base_ms = data["Clock"][0]
+            # fulldate = fulldate + datetime.timedelta(milliseconds=500)
+            yr = data["Year"][0]
+            mo = data["Month"][0]
+            da = data["Day"][0]
+            hr = data["Hours"][0]
+            mi = data["Minutes"][0]
+            se = data["Seconds"][0]
+            millis = (se - int(se)) * 1000.0
+            isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+            dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.000000Z"
+            start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
+            data["time"] = []
+            # for (clock, yr,mo,da,hr,mi,se) in zip(data["Clock"]["data"],data["Year"]["data"],data["Month"]["data"],data["Day"]["data"],data["Hours"]["data"],data["Minutes"]["data"],data["Seconds"]["data"]):
+            for i, clck in enumerate(data["Clock"]):
+                # dtstr = f"{int(yr)}-{int(mo)}-{int(da)}T{int(hr)}:{int(mi)}:{int(se)}Z"
+                # ms = int(clock)
+                # dt = (start_dt + timedelta(milliseconds=int(ms)))#.replace(microsecond=0)
+                yr = data["Year"][i]
+                mo = data["Month"][i]
+                da = data["Day"][i]
+                hr = data["Hours"][i]
+                mi = data["Minutes"][i]
+                se = data["Seconds"][i]
                 millis = (se - int(se)) * 1000.0
-                isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
-                dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.000000Z"
-                start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
-                data["time"] = []
-                # for (clock, yr,mo,da,hr,mi,se) in zip(data["Clock"]["data"],data["Year"]["data"],data["Month"]["data"],data["Day"]["data"],data["Hours"]["data"],data["Minutes"]["data"],data["Seconds"]["data"]):
-                for i, clck in enumerate(data["Clock"]):
-                    # dtstr = f"{int(yr)}-{int(mo)}-{int(da)}T{int(hr)}:{int(mi)}:{int(se)}Z"
-                    # ms = int(clock)
-                    # dt = (start_dt + timedelta(milliseconds=int(ms)))#.replace(microsecond=0)
-                    yr = data["Year"][i]
-                    mo = data["Month"][i]
-                    da = data["Day"][i]
-                    hr = data["Hours"][i]
-                    mi = data["Minutes"][i]
-                    se = data["Seconds"][i]
-                    millis = (se - int(se)) * 1000.0
-                    dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.{int(millis):<06}Z"
-                    dt = datetime.strptime(dtstr, isofmt)
-                    # dup_index = 99999
-                    # while dup_index > 0:
-                    #     # dup_index = -1
-                    #     if dt in data["time"]:
-                    #         dup_index = data["time"].index(dt)
-                    #         for key, dat in data.items():
-                    #             if key == "metadata":
-                    #                 continue
-                    #             data[key].pop(dup_index)
-                    #     else:
-                    #         dup_index = -1
+                dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.{int(millis):<06}Z"
+                dt = datetime.strptime(dtstr, isofmt)
+                # dup_index = 99999
+                # while dup_index > 0:
+                #     # dup_index = -1
+                #     if dt in data["time"]:
+                #         dup_index = data["time"].index(dt)
+                #         for key, dat in data.items():
+                #             if key == "metadata":
+                #                 continue
+                #             data[key].pop(dup_index)
+                #     else:
+                #         dup_index = -1
 
-                    # data["time"].append((start_dt + timedelta(milliseconds=int(ms))).replace(microsecond=0))
-                    data["time"].append(dt)
-            # res = [idx for idx, val in enumerate(data["time"]) if val in data["time"][:idx]]
-        except FileNotFoundError:
-            print(f"load piccolo: file not found: {file_name}")
-
+                # data["time"].append((start_dt + timedelta(milliseconds=int(ms))).replace(microsecond=0))
+                data["time"].append(dt)
+        # res = [idx for idx, val in enumerate(data["time"]) if val in data["time"][:idx]]
         return data
 
     def load_clear_payload_dat_datafile(self, file_name, data=None):
@@ -493,97 +479,94 @@ class DataEvent:
 
         curr_date = ds_start_dt.strftime("%Y-%m-%d")
         # print(file_name)
-        try:
-            with open(file_name) as f:
+        with open(file_name) as f:
 
-                current_time = None
-                for line in f:
+            current_time = None
+            for line in f:
 
-                    # split on whitespace
-                    parts = line.split()
+                # split on whitespace
+                parts = line.split()
 
-                    for p in parts:
-                        if ":" in p:
-                            # if "time" not in raw_data:
-                            #     raw_data["time"] = []
-                            # raw_data["time"].append(p)
-                            current_time = f"{curr_date}T{p}Z"
-                            if current_time not in raw_data:
-                                raw_data[current_time] = dict()
-                        elif "=" in p:
-                            name, val = p.split("=")
-                            # if name not in raw_data[current_time]:
-                            #     raw_data[current_time][name] = []
-                            if name == "POPS":
-                                pops_data = val.split(",")
-                                raw_data[current_time][name] = [x for x in pops_data[1:]]
-                            elif name == "Date":
-                                curr_date = val
-                                raw_data[current_time][name] = val
-                            else:
-                                raw_data[current_time][name] = val
+                for p in parts:
+                    if ":" in p:
+                        # if "time" not in raw_data:
+                        #     raw_data["time"] = []
+                        # raw_data["time"].append(p)
+                        current_time = f"{curr_date}T{p}Z"
+                        if current_time not in raw_data:
+                            raw_data[current_time] = dict()
+                    elif "=" in p:
+                        name, val = p.split("=")
+                        # if name not in raw_data[current_time]:
+                        #     raw_data[current_time][name] = []
+                        if name == "POPS":
+                            pops_data = val.split(",")
+                            raw_data[current_time][name] = [x for x in pops_data[1:]]
+                        elif name == "Date":
+                            curr_date = val
+                            raw_data[current_time][name] = val
+                        else:
+                            raw_data[current_time][name] = val
 
-            par_list = []
-            if data is None or len(data) == 0:
-                data = dict()
-                # build key list
-                parameters = ["time"]
-                for name, record in raw_data.items():
-                    # if name == "time":
-                    #     continue
-                    for parname in record.keys():
-                        if parname not in data:
-                            data[parname] = []
-                            par_list.append(parname)
-                        # if parname not in parameters:
-                        #     parameters.append(parname)
-            else:
-                par_list = list(data.keys())
-                if "time" in par_list:
-                    time_index = par_list.index("time")
-                    par_list.pop(time_index)
+        par_list = []
+        if data is None or len(data) == 0:
+            data = dict()
+            # build key list
+            parameters = ["time"]
+            for name, record in raw_data.items():
+                # if name == "time":
+                #     continue
+                for parname in record.keys():
+                    if parname not in data:
+                        data[parname] = []
+                        par_list.append(parname)
+                    # if parname not in parameters:
+                    #     parameters.append(parname)
+        else:
+            par_list = list(data.keys())
+            if "time" in par_list:
+                time_index = par_list.index("time")
+                par_list.pop(time_index)
 
-            # print(par_list)
-            for dtstr, record in raw_data.items():
+        # print(par_list)
+        for dtstr, record in raw_data.items():
 
-                # dt = datetime.strptime(f"{curr_date}T{dtstr}Z", "%Y-%m-%dT%H:%M:%SZ")
-                dt = datetime.strptime(dtstr, "%Y-%m-%dT%H:%M:%SZ")
-                if "time" not in data:
-                    data["time"] = []
+            # dt = datetime.strptime(f"{curr_date}T{dtstr}Z", "%Y-%m-%dT%H:%M:%SZ")
+            dt = datetime.strptime(dtstr, "%Y-%m-%dT%H:%M:%SZ")
+            if "time" not in data:
+                data["time"] = []
 
-                dup_index = None
-                try:
-                    if dt in data["time"]:
-                        dup_index = data["time"].index(dt)
-                        # print(f"time dup_index = {dup_index}")
-                        # print(f"len of data[time] = {len(data['time'])}")
-                        data["time"].pop(dup_index)
-                        # print(f"\tlen of data[time] = {len(data['time'])}")
-                    if dt >= ds_start_dt and dt <= ds_end_dt:
-                        data["time"].append(dt)
-                    else:
-                        continue
-                except KeyError:
+            dup_index = None
+            try:
+                if dt in data["time"]:
+                    dup_index = data["time"].index(dt)
+                    # print(f"time dup_index = {dup_index}")
+                    # print(f"len of data[time] = {len(data['time'])}")
+                    data["time"].pop(dup_index)
+                    # print(f"\tlen of data[time] = {len(data['time'])}")
+                if dt >= ds_start_dt and dt <= ds_end_dt:
+                    data["time"].append(dt)
+                else:
                     continue
+            except KeyError:
+                continue
 
-                for key in par_list:
-                    if key not in data:
-                        print(f"make array: {key}")
-                        data[key] = []
+            for key in par_list:
+                if key not in data:
+                    print(f"make array: {key}")
+                    data[key] = []
 
-                    try:
-                        if dup_index:
-                            data[key].pop(dup_index)
-                            # print(f"var[{key}] dup_index = {dup_index}")
-                        rec = record[key]
-                        data[key].append(rec)
-                    except KeyError:
-                        data[key].append(None)
-                    except TypeError:
-                        # print(f"{key}, {dat}")
-                        data[key].append(None)
-        except FileNotFoundError:
-            print(f"load payload: file not found: {file_name}")
+                try:
+                    if dup_index:
+                        data[key].pop(dup_index)
+                        # print(f"var[{key}] dup_index = {dup_index}")
+                    rec = record[key]
+                    data[key].append(rec)
+                except KeyError:
+                    data[key].append(None)
+                except TypeError:
+                    # print(f"{key}, {dat}")
+                    data[key].append(None)
 
         return data
 
@@ -609,150 +592,147 @@ class DataEvent:
         ds_start_dt = self.get_start_dt()
         ds_end_dt = self.get_end_dt()
 
-        try:
-            with open(file_name, "rb") as f:
-                while True:
-                    buf = f.read(12)
-                    if not buf or len(buf) != 12:
-                        break
-                    num_part, tstamp = struct.unpack("<Ld", buf)
-                    try:
-                        dt = datetime.utcfromtimestamp(np.floor(tstamp))
-                    except OverflowError:
-                        dt = datetime.utcfromtimestamp(0)
+        with open(file_name, "rb") as f:
+            while True:
+                buf = f.read(12)
+                if not buf or len(buf) != 12:
+                    break
+                num_part, tstamp = struct.unpack("<Ld", buf)
+                try:
+                    dt = datetime.utcfromtimestamp(np.floor(tstamp))
+                except OverflowError:
+                    dt = datetime.utcfromtimestamp(0)
 
-                    # print(num_part, tstamp)
-                    if num_part > 0:  # and dt >= ds_start_dt and dt < ds_end_dt:
-                        data_peaks = []
-                        for i in range(0, num_part):
-                            buf = f.read(12)
-                            if len(buf) != 12:
-                                break
-                            pk, _, _ = struct.unpack("<3L", buf)
-                            data_peaks.append(pk)
+                # print(num_part, tstamp)
+                if num_part > 0:  # and dt >= ds_start_dt and dt < ds_end_dt:
+                    data_peaks = []
+                    for i in range(0, num_part):
+                        buf = f.read(12)
+                        if len(buf) != 12:
+                            break
+                        pk, _, _ = struct.unpack("<3L", buf)
+                        data_peaks.append(pk)
 
-                        if dt >= ds_start_dt and dt < ds_end_dt:
-                            amplitude = xr.DataArray(np.log10(data_peaks), dims=["count"])
-                            data_dp = cal.interp(
-                                cal_bins=amplitude, method="cubic"
-                            ).Size.to_dataset()
+                    if dt >= ds_start_dt and dt < ds_end_dt:
+                        amplitude = xr.DataArray(np.log10(data_peaks), dims=["count"])
+                        data_dp = cal.interp(
+                            cal_bins=amplitude, method="cubic"
+                        ).Size.to_dataset()
 
-                            try:
-                                if "time" not in data:
-                                    data["time"] = []
-                                if "bin_counts" not in data:
-                                    data["bin_counts"] = []
-                                if "diameter_um" not in data:
-                                    data["diameter_um"] = []
+                        try:
+                            if "time" not in data:
+                                data["time"] = []
+                            if "bin_counts" not in data:
+                                data["bin_counts"] = []
+                            if "diameter_um" not in data:
+                                data["diameter_um"] = []
 
-                                data["bin_counts"].append(
-                                    list(
-                                        data_dp.groupby_bins(
-                                            group=data_dp.Size, bins=bin_bounds
-                                        )
-                                        .count()
-                                        .Size.values
+                            data["bin_counts"].append(
+                                list(
+                                    data_dp.groupby_bins(
+                                        group=data_dp.Size, bins=bin_bounds
                                     )
+                                    .count()
+                                    .Size.values
                                 )
-                                data["diameter_um"].append(pops_dp_um)
-                                data["time"].append(dt)
-                                # hist_data.append(list(data_dp.groupby_bins(group=data_dp.Size, bins=bin_bounds).count().Size.values))
-                                # dt_data.append(datetime.fromtimestamp(np.floor(tstamp)))
-                            except ValueError:
-                                pass
-                            # if len(hist_data) > 10:
-                            #     break
+                            )
+                            data["diameter_um"].append(pops_dp_um)
+                            data["time"].append(dt)
+                            # hist_data.append(list(data_dp.groupby_bins(group=data_dp.Size, bins=bin_bounds).count().Size.values))
+                            # dt_data.append(datetime.fromtimestamp(np.floor(tstamp)))
+                        except ValueError:
+                            pass
+                        # if len(hist_data) > 10:
+                        #     break
 
-            # ('bin_counts', 'pops_bin_counts', 'clear_pops_bin_counts'),
-            # ('diameter_um', 'pops_dp_um_2d', 'cloudy_msems_diameter_um'),
+        # ('bin_counts', 'pops_bin_counts', 'clear_pops_bin_counts'),
+        # ('diameter_um', 'pops_dp_um_2d', 'cloudy_msems_diameter_um'),
 
-            # raw_data = dict()
-            # isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
-            # ds_start_dt = self.get_start_dt()
-            # ds_end_dt = self.get_end_dt()
-            # varlist = []
+        # raw_data = dict()
+        # isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+        # ds_start_dt = self.get_start_dt()
+        # ds_end_dt = self.get_end_dt()
+        # varlist = []
 
-            # curr_date = ds_start_dt.strftime("%Y-%m-%d")
-            # print(file_name)
-            # with open(file_name) as f:
+        # curr_date = ds_start_dt.strftime("%Y-%m-%d")
+        # print(file_name)
+        # with open(file_name) as f:
 
-            #     current_time = None
-            #     for line in f:
+        #     current_time = None
+        #     for line in f:
 
-            #         # split on whitespace
-            #         parts = line.split()
+        #         # split on whitespace
+        #         parts = line.split()
 
-            #         for p in parts:
-            #             if ":" in p:
-            #                 # if "time" not in raw_data:
-            #                 #     raw_data["time"] = []
-            #                 # raw_data["time"].append(p)
-            #                 current_time = f"{curr_date}T{p}Z"
-            #                 if current_time not in raw_data:
-            #                     raw_data[current_time] = dict()
-            #             elif "=" in p:
-            #                 name,val = p.split("=")
-            #                 # if name not in raw_data[current_time]:
-            #                 #     raw_data[current_time][name] = []
-            #                 if name == "POPS":
-            #                     pops_data = val.split(",")
-            #                     raw_data[current_time][name] = [x for x in pops_data[1:]]
-            #                 elif name == "Date":
-            #                     curr_date = val
-            #                     raw_data[current_time][name] = val
-            #                 else:
-            #                     raw_data[current_time][name] = val
+        #         for p in parts:
+        #             if ":" in p:
+        #                 # if "time" not in raw_data:
+        #                 #     raw_data["time"] = []
+        #                 # raw_data["time"].append(p)
+        #                 current_time = f"{curr_date}T{p}Z"
+        #                 if current_time not in raw_data:
+        #                     raw_data[current_time] = dict()
+        #             elif "=" in p:
+        #                 name,val = p.split("=")
+        #                 # if name not in raw_data[current_time]:
+        #                 #     raw_data[current_time][name] = []
+        #                 if name == "POPS":
+        #                     pops_data = val.split(",")
+        #                     raw_data[current_time][name] = [x for x in pops_data[1:]]
+        #                 elif name == "Date":
+        #                     curr_date = val
+        #                     raw_data[current_time][name] = val
+        #                 else:
+        #                     raw_data[current_time][name] = val
 
-            # par_list = []
-            # if data is None or len(data) == 0:
-            #     data = dict()
-            #     # build key list
-            #     parameters = ["time"]
-            #     for name, record in raw_data.items():
-            #         # if name == "time":
-            #         #     continue
-            #         for parname in record.keys():
-            #             if parname not in data:
-            #                 data[parname] = []
-            #                 par_list.append(parname)
-            #             # if parname not in parameters:
-            #             #     parameters.append(parname)
+        # par_list = []
+        # if data is None or len(data) == 0:
+        #     data = dict()
+        #     # build key list
+        #     parameters = ["time"]
+        #     for name, record in raw_data.items():
+        #         # if name == "time":
+        #         #     continue
+        #         for parname in record.keys():
+        #             if parname not in data:
+        #                 data[parname] = []
+        #                 par_list.append(parname)
+        #             # if parname not in parameters:
+        #             #     parameters.append(parname)
 
-            # for dtstr, record in raw_data.items():
+        # for dtstr, record in raw_data.items():
 
-            #     # dt = datetime.strptime(f"{curr_date}T{dtstr}Z", "%Y-%m-%dT%H:%M:%SZ")
-            #     dt = datetime.strptime(dtstr, "%Y-%m-%dT%H:%M:%SZ")
-            #     if "time" not in data:
-            #         data["time"] = []
+        #     # dt = datetime.strptime(f"{curr_date}T{dtstr}Z", "%Y-%m-%dT%H:%M:%SZ")
+        #     dt = datetime.strptime(dtstr, "%Y-%m-%dT%H:%M:%SZ")
+        #     if "time" not in data:
+        #         data["time"] = []
 
-            #     dup_index =  None
-            #     try:
-            #         if dt in data["time"]:
-            #             dup_index = data["time"].index(dt)
-            #             # print(f"len of data[time] = {len(data['time'])}")
-            #             data["time"].pop(dup_index)
-            #             # print(f"\tlen of data[time] = {len(data['time'])}")
+        #     dup_index =  None
+        #     try:
+        #         if dt in data["time"]:
+        #             dup_index = data["time"].index(dt)
+        #             # print(f"len of data[time] = {len(data['time'])}")
+        #             data["time"].pop(dup_index)
+        #             # print(f"\tlen of data[time] = {len(data['time'])}")
 
-            #         data["time"].append(dt)
-            #     except KeyError:
-            #         continue
+        #         data["time"].append(dt)
+        #     except KeyError:
+        #         continue
 
-            #     for key in par_list:
-            #         if key not in data:
-            #             data[key] = []
+        #     for key in par_list:
+        #         if key not in data:
+        #             data[key] = []
 
-            #         try:
-            #             if dup_index:
-            #                 data[key].pop(dup_index)
-            #             rec = record[key]
-            #             data[key].append(rec)
-            #         except KeyError:
-            #             data[key].append(None)
-            #         except TypeError:
-            #             # print(f"{key}, {dat}")
-            #             data[key].append(None)
-        except FileNotFoundError:
-            print(f"load pops: file not found: {file_name}")
+        #         try:
+        #             if dup_index:
+        #                 data[key].pop(dup_index)
+        #             rec = record[key]
+        #             data[key].append(rec)
+        #         except KeyError:
+        #             data[key].append(None)
+        #         except TypeError:
+        #             # print(f"{key}, {dat}")
+        #             data[key].append(None)
 
         return data
 
@@ -776,17 +756,10 @@ class DataEvent:
         # print(data)
         # coords = self.parse_coordinates(data)
         # print(len(data["time"]), len(data["CONCN"]))
-        if data is None:
-            return None
-
         ds = xr.Dataset()
         # add coordinates
         coords = ["time"]
-        try:
-            ds.coords["time"] = data["time"]
-        except KeyError:
-            return None
-
+        ds.coords["time"] = data["time"]
         if dims is None:
             dims = ["time"]
         # for name, coord in data["extra_coords"].items():
@@ -947,25 +920,15 @@ def save_for_invert_msems(instrument, event_id, datasystem, controller, config):
     try:
         controller_config = config["datasystems"][datasystem][controller]
         inv_config = controller_config["instruments"][instrument]
-        inv_path = os.path.join(inv_config["invert_path"], "") # add trailing slash if necessary
+        inv_path = inv_config["invert_path"]
         base_path = os.path.join(
             controller_config["base_path"], controller, instrument, ""
         )
 
-        # create inversion path if necessary
-        try:
-            os.makedirs(inv_path)
-        except FileExistsError:
-            pass
-        except PermissionError:
-            print(f"Do not have permission to create inversion directory: {inv_path}")
-            return
-
         d = Data()
         for dayfile in file_list:
-            # path = "/home/derek/Data/envDataSystem/from_cloudbase/UIServer/cloudy1.acg.pmel.noaa.gov/cloudysky/uas_cloudy/cloudy_msems/"
+            path = "/home/derek/Data/envDataSystem/from_cloudbase/UIServer/cloudy1.acg.pmel.noaa.gov/cloudysky/uas_cloudy/cloudy_msems/"
             # fname = os.path.join(,dayfile)
-            # print(f"inv path: {inv_path}")
             d.run(
                 fname=dayfile,
                 path=base_path,
@@ -1007,7 +970,7 @@ def load_inverted_msems(
     try:
         controller_config = config["datasystems"][datasystem][controller]
         inv_config = controller_config["instruments"][instrument]
-        inv_path = os.path.join(inv_config["invert_path"], "") # add trailing slash if necessary
+        inv_path = inv_config["invert_path"]
         base_path = os.path.join(
             controller_config["base_path"], controller, instrument, ""
         )
@@ -1016,7 +979,6 @@ def load_inverted_msems(
         conc = []
         for invfile in file_list:
             invname = os.path.join(inv_path, invfile)
-            # print(invname)
             with open(invname) as f:
                 next(f)  # skip header
                 for line in f:
@@ -1522,17 +1484,8 @@ def save_flight_itx(ds):
         tb = ds.attrs["timebase"]
     except KeyError:
         return
-
-    # create output path if necessary
-    try:
-        os.makedirs(os.path.join("data", "igor"))
-    except FileExistsError:
-        pass
-    except PermissionError:
-        print(f"Do not have permission to create inversion directory: {os.path.join('data', 'igor')}")
-        return
-
-    fname = os.path.join("data", "igor", f"{project}_{flight_id}_{payload_id}_{event_id}_{tb}s.itx")
+    
+    fname = f"{project}_{flight_id}_{payload_id}_{event_id}_{tb}s.itx"
     # print(fname)
     igor_epoch = np.datetime64("1904-01-01T00:00:00").astype('datetime64[s]').astype('int')
     
