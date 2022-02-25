@@ -132,3 +132,4 @@ dmypy.json
 
 **/Flight_*/data/ 
 
+config/settings.py
