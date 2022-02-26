@@ -315,7 +315,7 @@ class Data:
         else:
 
             with open(
-                "./msems_header.txt",
+                "code/msems_header.txt",
                 mode="r",
             ) as h:
                 header = h.read()
