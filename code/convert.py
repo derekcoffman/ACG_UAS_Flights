@@ -315,7 +315,7 @@ class Data:
         else:
 
             with open(
-                "/home/derek/Software/python/envDataSystem_analysis/utilities/msems_header.txt",
+                "./msems_header.txt",
                 mode="r",
             ) as h:
                 header = h.read()
