@@ -6,7 +6,63 @@ import sys
 from netCDF4 import Dataset, num2date
 import os
 
-
+msems_header = """
+#mSEMS SN:1
+#------------
+#mSEMS Firmware:1.3
+#mSEMS Mfg Date:19/10/3
+#UAV Reader Version:6.1
+#MCPC SN:16
+#
+#scan_conf
+#---------
+#sheath_sp:2.5
+#scan_type:2
+#scan_max_dia:300
+#scan_min_dia:20
+#num_bins:30
+#bin_time:1.00
+#plumbing_time:1.2
+#
+#hdw_conf
+#--------
+#mcpc_b_yn:0
+#mcpc_b_smpf:0.360
+#samp_rh_yn:0
+#sheath_rh_yn:0
+#col_type:0
+#samp_type:1
+#
+#constants
+#---------
+#hv_polarity:0
+#hv_max_volts:3000
+#mcpc_tau:0.250
+#mcpc_c2:0.845
+#mcpc_c1:7.929
+#mcpc_c0:1.025
+#col_length:0.06350
+#col_r_outer:0.02159
+#col_r_inner:0.01905
+#
+#calibration
+#-----------
+#sheath_c2:-8461.90
+#sheath_c1:1514.00
+#sheath_c0:-5313.80
+#cal_temp:24.7
+#impct_slp:2325.1
+#impct_off:-861.6
+#press_slp:3879.2
+#press_off:-1482.6
+#hv_slope:1507.5
+#hv_offset:804.2
+#ext_slope:1.0
+#ext_offset:0.0
+#
+#bin_conc=false
+#
+"""
 class Data:
     def __init__(self):
 
@@ -314,12 +370,13 @@ class Data:
             pass
         else:
 
-            with open(
-                "code/msems_header.txt",
-                mode="r",
-            ) as h:
-                header = h.read()
-                # print(header)
+            # with open(
+            #     "code/msems_header.txt",
+            #     mode="r",
+            # ) as h:
+            #     header = h.read()
+            #     # print(header)
+            header = msems_header
 
             col_names1 = [
                 "#YY/MM/DD",
