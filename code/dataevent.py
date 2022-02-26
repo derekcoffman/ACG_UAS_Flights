@@ -3,11 +3,13 @@ from operator import inv
 import os
 import json
 import struct
+
 # from tracemalloc import start
 from click import clear
 import numpy as np
 import xarray as xr
 import pandas as pd
+
 # import hvplot
 # import hvplot.pandas
 # import hvplot.xarray
@@ -104,18 +106,22 @@ class DataEvent:
                         ds_out_list.append(
                             # ds.reindex(time=sorted(ds.time.values)).sel(time=~ds.get_index("time").duplicated()).sel(time=slice(start_dt, end_dt)).reindex({"time": dr}, method="nearest", tolerance=tol)
                             ds_2.sel(time=slice(start_dt, end_dt)).reindex(
-                                {"time": dr}, method="nearest"#, tolerance=tol
+                                {"time": dr}, method="nearest"  # , tolerance=tol
                             )
                         )
         ds_out = xr.combine_by_coords(ds_out_list, combine_attrs="drop")
 
         # # add extra time arrays: mid, end
-        tb_ms = int(tb * 1000) # use ms
-        tb_mid = int(tb_ms/2)
+        tb_ms = int(tb * 1000)  # use ms
+        tb_mid = int(tb_ms / 2)
         # print(tb)
         ds_out["time_mid"] = ds_out.time + np.timedelta64(tb_mid, "ms")
         ds_out["time_end"] = ds_out.time + np.timedelta64(tb_ms, "ms")
-        ds_out["duration"] = xr.DataArray(np.full(ds_out.dims["time"], tb), coords={"time": ds_out.time.values}, dims=["time"])
+        ds_out["duration"] = xr.DataArray(
+            np.full(ds_out.dims["time"], tb),
+            coords={"time": ds_out.time.values},
+            dims=["time"],
+        )
         meta = self._data["metadata"]
         for key, val in meta.items():
             ds_out.attrs[key] = val
@@ -255,9 +261,16 @@ class DataEvent:
                             cal_file = cfg["calibration_file"]
                             caldf = pd.read_csv(cal_file)
                             calds = xr.Dataset(caldf)
-                            calds = calds.rename_dims({"dim_0": "cal_bins"}).drop(
-                                "dim_0"
+                            # calds = calds.rename_dims({"dim_0": "cal_bins"}).drop(
+                            #     "dim_0"
+                            # )
+                            calds = (
+                                calds.rename({"Amplitude": "amplitude"})
+                                .set_coords("amplitude")
+                                .swap_dims({"dim_0": "amplitude"})
+                                .drop("dim_0")
                             )
+
                         except (KeyError, FileNotFoundError):
                             print(
                                 "Missing POPS calibration file, not able to load pops-bin data"
@@ -293,7 +306,7 @@ class DataEvent:
                     vars = None
                     if "variables" in cfg:
                         vars = cfg["variables"]
-                
+
                     ds = self.create_dataset(data, dims=cfg["dims"], vars=vars)
                     # ds = self.prepare_dataset(ds)
                     if ds:
@@ -385,7 +398,7 @@ class DataEvent:
                         data["metadata"] = entry["METADATA"]
         except FileNotFoundError:
             print(f"load evnds: file not found: {file_name}")
-        
+
         return data
 
     def load_piccolo_datafile(self, file_name, data=None):
@@ -417,7 +430,9 @@ class DataEvent:
                         units = parts[1].replace("[", "").replace("]", "")
                         if "metadata" not in data:
                             data["metadata"] = {"measurement_meta": {"primary": {}}}
-                        data["metadata"]["measurement_meta"]["primary"][name] = {"units": units}
+                        data["metadata"]["measurement_meta"]["primary"][name] = {
+                            "units": units
+                        }
                         #     "measurement_meta": {"primary": {name: {"units": units}}}
                         # }
 
@@ -448,7 +463,7 @@ class DataEvent:
                 millis = (se - int(se)) * 1000.0
                 isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
                 dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.000000Z"
-                start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
+                # start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
                 data["time"] = []
                 # for (clock, yr,mo,da,hr,mi,se) in zip(data["Clock"]["data"],data["Year"]["data"],data["Month"]["data"],data["Day"]["data"],data["Hours"]["data"],data["Minutes"]["data"],data["Seconds"]["data"]):
                 for i, clck in enumerate(data["Clock"]):
@@ -461,6 +476,10 @@ class DataEvent:
                     hr = data["Hours"][i]
                     mi = data["Minutes"][i]
                     se = data["Seconds"][i]
+                    if se < 0:
+                        se = 0
+                    elif se > 59.99:
+                        se = 59.99
                     millis = (se - int(se)) * 1000.0
                     dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.{int(millis):<06}Z"
                     dt = datetime.strptime(dtstr, isofmt)
@@ -519,7 +538,9 @@ class DataEvent:
                             #     raw_data[current_time][name] = []
                             if name == "POPS":
                                 pops_data = val.split(",")
-                                raw_data[current_time][name] = [x for x in pops_data[1:]]
+                                raw_data[current_time][name] = [
+                                    x for x in pops_data[1:]
+                                ]
                             elif name == "Date":
                                 curr_date = val
                                 raw_data[current_time][name] = val
@@ -635,9 +656,14 @@ class DataEvent:
                             data_peaks.append(pk)
 
                         if dt >= ds_start_dt and dt < ds_end_dt:
-                            amplitude = xr.DataArray(np.log10(data_peaks), dims=["count"])
+                            amplitude = xr.DataArray(
+                                np.log10(data_peaks), dims=["count"]
+                            )
                             data_dp = cal.interp(
-                                cal_bins=amplitude, method="cubic"
+                                # cal_bins=amplitude,
+                                amplitude=amplitude,
+                                method="cubic",
+                                kwargs={"fill_value": "extrapolate"},
                             ).Size.to_dataset()
 
                             try:
@@ -950,7 +976,9 @@ def save_for_invert_msems(instrument, event_id, datasystem, controller, config):
     try:
         controller_config = config["datasystems"][datasystem][controller]
         inv_config = controller_config["instruments"][instrument]
-        inv_path = os.path.join(inv_config["invert_path"], "") # add trailing slash if necessary
+        inv_path = os.path.join(
+            inv_config["invert_path"], ""
+        )  # add trailing slash if necessary
         base_path = os.path.join(
             controller_config["base_path"], controller, instrument, ""
         )
@@ -1010,7 +1038,9 @@ def load_inverted_msems(
     try:
         controller_config = config["datasystems"][datasystem][controller]
         inv_config = controller_config["instruments"][instrument]
-        inv_path = os.path.join(inv_config["invert_path"], "") # add trailing slash if necessary
+        inv_path = os.path.join(
+            inv_config["invert_path"], ""
+        )  # add trailing slash if necessary
         base_path = os.path.join(
             controller_config["base_path"], controller, instrument, ""
         )
@@ -1165,7 +1195,7 @@ def process_cdp(cdp, speed=None, recode=False):
         # skip if already recoded
         if "recode_status" in cdp.attrs and cdp.attrs["recode_status"]:
             pass
-        
+
         else:
             import json
             import struct
@@ -1194,9 +1224,9 @@ def process_cdp(cdp, speed=None, recode=False):
     # print(f"speed = {speed}")
     cdp.coords["cdp_dp_um"] = (["cdp_bins"], cdp.cdp_dp_um_2d.values[0])
     cdp.cdp_dp_um.attrs["units"] = "um"
-    
+
     (dlogDp, dp_bounds_um) = calc_dp_bounds(cdp.cdp_dp_um.values)
-    
+
     cdp["cdp_dlogDp"] = (["cdp_bins"], dlogDp)
     cdp.coords["cdp_dp_bounds_um"] = (["cdp_bin_bounds"], dp_bounds_um)
     cdp.cdp_dp_bounds_um.attrs["units"] = "um"
@@ -1211,10 +1241,7 @@ def process_cdp(cdp, speed=None, recode=False):
 
     cdp["cdp_dSdlogDp"] = (
         ["time", "cdp_bins"],
-        cdp.cdp_dNdlogDp.data
-        * 4.0
-        * np.pi
-        * np.power(cdp.cdp_dp_um.data / 2, 2),
+        cdp.cdp_dNdlogDp.data * 4.0 * np.pi * np.power(cdp.cdp_dp_um.data / 2, 2),
     )
     cdp["cdp_dS"] = (
         ["time", "cdp_bins"],
@@ -1222,11 +1249,7 @@ def process_cdp(cdp, speed=None, recode=False):
     )
     cdp["cdp_dVdlogDp"] = (
         ["time", "cdp_bins"],
-        cdp.cdp_dNdlogDp.data
-        * 4.0
-        / 3.0
-        * np.pi
-        * np.power(cdp.cdp_dp_um.data / 2, 3),
+        cdp.cdp_dNdlogDp.data * 4.0 / 3.0 * np.pi * np.power(cdp.cdp_dp_um.data / 2, 3),
     )
     cdp["cdp_dV"] = (
         ["time", "cdp_bins"],
@@ -1240,7 +1263,7 @@ def process_cdp(cdp, speed=None, recode=False):
     cdp["cdp_intV"] = cdp.cdp_dV.sum(dim="cdp_bins")
     cdp.cdp_intV.attrs["units"] = "um3/cm3"
 
-    cdp["cdp_lwc"] = cdp.cdp_intV / 100**3
+    cdp["cdp_lwc"] = cdp.cdp_intV / 100 ** 3
     cdp.cdp_lwc.attrs["units"] = "g/m3"
 
 
@@ -1359,10 +1382,12 @@ def process_pops(pops, flow_rate=None, firstDp=0.140, lastDp=3.0, avg_tb=30):
 
     return pops
 
+
 def process_payload(payload, **kwargs):
     process_payload_abs(payload, **kwargs)
-    
+
     return payload
+
 
 def process_payload_abs(payload, ref_init=None, avg_time=30):
     if payload is None:
@@ -1372,9 +1397,9 @@ def process_payload_abs(payload, ref_init=None, avg_time=30):
     if ref_init is None:
         ref_init = {
             payload.time.values[0]: {
-                "init_450": (payload.ABSBA.values[0]/payload.ABSBB.values[0]),
-                "init_525": (payload.ABSGA.values[0]/payload.ABSGB.values[0]),
-                "init_624": (payload.ABSRA.values[0]/payload.ABSRB.values[0]),
+                "init_450": (payload.ABSBA.values[0] / payload.ABSBB.values[0]),
+                "init_525": (payload.ABSGA.values[0] / payload.ABSGB.values[0]),
+                "init_624": (payload.ABSRA.values[0] / payload.ABSRB.values[0]),
             },
         }
 
@@ -1431,30 +1456,43 @@ def process_payload_abs(payload, ref_init=None, avg_time=30):
             (payload[f"ABS{color}A"] / payload[f"ABS{color}B"] / tr_init),
             coords=[payload.time.values],
             dims=["time"],
-            name=tr_name
+            name=tr_name,
         )
         ba = xr.DataArray(
-            np.full(payload.dims["time"],np.nan, dtype=np.float64), 
-            coords=[payload.time.values], 
+            np.full(payload.dims["time"], np.nan, dtype=np.float64),
+            coords=[payload.time.values],
             dims=["time"],
-            name=bap_name
+            name=bap_name,
         )
 
-        for i in range(0,payload.dims["time"]):
+        for i in range(0, payload.dims["time"]):
             dti = payload.time[i].values
-            delta2x = np.timedelta64((2*avg_time),"s")
-            delta1x = np.timedelta64(avg_time,"s")
-            dr2 = pd.date_range(start=(dti-delta2x), end=(dti-delta1x), freq="S", closed="left")
-            dr1 = pd.date_range(start=(dti-delta1x), end=(dti), freq="S", closed="left")
+            delta2x = np.timedelta64((2 * avg_time), "s")
+            delta1x = np.timedelta64(avg_time, "s")
+            dr2 = pd.date_range(
+                start=(dti - delta2x), end=(dti - delta1x), freq="S", closed="left"
+            )
+            dr1 = pd.date_range(
+                start=(dti - delta1x), end=(dti), freq="S", closed="left"
+            )
             try:
                 tr2 = tr.sel(time=dr2).mean(skipna=True)
                 tr1 = tr.sel(time=dr1).mean(skipna=True)
-                trdiff = np.log( tr2 / tr1)
-                flow_avg = flow_rate.sel(time=dr1).where(tr.sel(time=dr1).notnull()).mean(skipna=True)
-                td = (payload.time.sel(time=dr1).where(tr.sel(time=dr1).notnull()).mean() - payload.time.sel(time=dr2).where(tr.sel(time=dr2).notnull()).mean())
-                new_avg_time = (td/(np.timedelta64(1, 's'))).values
+                trdiff = np.log(tr2 / tr1)
+                flow_avg = (
+                    flow_rate.sel(time=dr1)
+                    .where(tr.sel(time=dr1).notnull())
+                    .mean(skipna=True)
+                )
+                td = (
+                    payload.time.sel(time=dr1).where(tr.sel(time=dr1).notnull()).mean()
+                    - payload.time.sel(time=dr2)
+                    .where(tr.sel(time=dr2).notnull())
+                    .mean()
+                )
+                new_avg_time = (td / (np.timedelta64(1, "s"))).values
                 ba[i] = trdiff * spot_size / flow_avg / new_avg_time
-                ba[i] *= 0.873/(1.317 * tr1 + 0.866)
+                ba[i] *= 0.873 / (1.317 * tr1 + 0.866)
                 ba[i] *= 1e6
                 # print(tr.sel(time=dr1))
                 # print(trdiff[i], tr.sel(time=dr1).mean(), tr.sel(time=dr2).mean())
@@ -1479,6 +1517,7 @@ def process_payload_abs(payload, ref_init=None, avg_time=30):
 
     return payload
 
+
 def process_piccolo(piccolo):
     if piccolo is None:
         return None
@@ -1492,12 +1531,14 @@ def process_piccolo(piccolo):
     )
 
     if "start_dt" in piccolo.attrs and "end_dt" in piccolo.attrs:
-        piccolo = piccolo.sel(time=slice(piccolo.attrs["start_dt"], piccolo.attrs["end_dt"]))
+        piccolo = piccolo.sel(
+            time=slice(piccolo.attrs["start_dt"], piccolo.attrs["end_dt"])
+        )
 
     # convert radians to degrees
     for name, var in piccolo.items():
         if var.attrs["units"] == "rad":
-            piccolo[name].values = var*180/np.pi
+            piccolo[name].values = var * 180 / np.pi
             if name == "latitude":
                 piccolo[name].attrs["units"] = "degrees_north"
             elif name == "longitude":
@@ -1509,12 +1550,15 @@ def process_piccolo(piccolo):
     heights = ["altitude", "pressure_altitude", "height_agl"]
     for h in heights:
         try:
-            piccolo[f"{h}_ft"] = xr.DataArray(piccolo[h].values*3.28084, dims=["time"])
+            piccolo[f"{h}_ft"] = xr.DataArray(
+                piccolo[h].values * 3.28084, dims=["time"]
+            )
             piccolo[f"{h}_ft"].attrs["units"] = "feet"
         except KeyError:
             pass
 
-    return piccolo 
+    return piccolo
+
 
 def save_flight_itx(ds):
     try:
@@ -1532,20 +1576,26 @@ def save_flight_itx(ds):
     except FileExistsError:
         pass
     except PermissionError:
-        print(f"Do not have permission to create inversion directory: {os.path.join('data', 'igor')}")
+        print(
+            f"Do not have permission to create inversion directory: {os.path.join('data', 'igor')}"
+        )
         return
 
-    fname = os.path.join("data", "igor", f"{project}_{flight_id}_{payload_id}_{event_id}_{tb}s.itx")
+    fname = os.path.join(
+        "data", "igor", f"{project}_{flight_id}_{payload_id}_{event_id}_{tb}s.itx"
+    )
     # print(fname)
-    igor_epoch = np.datetime64("1904-01-01T00:00:00").astype('datetime64[s]').astype('int')
-    
+    igor_epoch = (
+        np.datetime64("1904-01-01T00:00:00").astype("datetime64[s]").astype("int")
+    )
+
     # print(ds.coords)
 
     out = open(fname, "w")
     # print(out)
-    
+
     out.write("IGOR\n")
-    
+
     # name, coord = ds.items()
     # print(f"name={name}")
     for name, coord in ds.reset_coords().coords.items():
@@ -1556,11 +1606,11 @@ def save_flight_itx(ds):
             out.write(line)
             out.write("BEGIN\n")
             line = ""
-            for ts in coord.values.astype('datetime64[s]').astype('int'):
-                line = "\t".join([line, str(ts-igor_epoch)])
+            for ts in coord.values.astype("datetime64[s]").astype("int"):
+                line = "\t".join([line, str(ts - igor_epoch)])
             out.write(f"{line}\n")
             out.write("END\n")
-                        
+
         else:
             line = f"WAVES/O/D\t{name}\n"
             out.write(line)
@@ -1570,7 +1620,7 @@ def save_flight_itx(ds):
                 line = "\t".join([line, str(val)])
             out.write(f"{line}\n")
             out.write("END\n")
-            
+
     for name, param in ds.reset_coords().items():
         name = name.replace("-", "_")
         if name in ["time", "time_mid", "time_end"]:
@@ -1579,8 +1629,8 @@ def save_flight_itx(ds):
             out.write(line)
             out.write("BEGIN\n")
             line = ""
-            for ts in param.values.astype('datetime64[s]').astype('int'):
-                line = "\t".join([line, str(ts-igor_epoch)])
+            for ts in param.values.astype("datetime64[s]").astype("int"):
+                line = "\t".join([line, str(ts - igor_epoch)])
             out.write(f"{line}\n")
             out.write("END\n")
         elif len(param.shape) > 1:
@@ -1607,12 +1657,11 @@ def save_flight_itx(ds):
             out.write("END\n")
             line = f'X SetScale/P x {ds.time[0].values.astype("datetime64[s]").astype("int")-igor_epoch} ,{tb},"dat", {name}\n'
             out.write(line)
-        
-    
-    
-    line = f'X make/o/D/n=(numpnts({event_id}_time)+1) {event_id}_time_im; {event_id}_time_im[0]={event_id}_time[0]; {event_id}_time_im[1,]={event_id}_time_im[p-1]+duration[p-1]\n'
+
+    line = f"X make/o/D/n=(numpnts({event_id}_time)+1) {event_id}_time_im; {event_id}_time_im[0]={event_id}_time[0]; {event_id}_time_im[1,]={event_id}_time_im[p-1]+duration[p-1]\n"
     out.write(line)
     out.close()
+
 
 if __name__ == "__main__":
 
@@ -1883,26 +1932,93 @@ if __name__ == "__main__":
         "kind": "ClearSkyFlight",
         "metadata": {
             "project": "VP2022",
-            "platform": "AeroPhys",
-            "flight_id": "VP2022_SimFlight_03",
+            "platform": "FVR-55",
+            "flight_id": "Flight_05",
+            "payload_id": "ClearSky",
         },
         "events": {
-            "preflight": {
-                "start_time": "2022-02-01T21:00:00Z",
-                "end_time": "2022-02-01T22:00:00Z",
-                "datasystems": ["CloudySky", "GroundStation"],
-            },
+            "preflight": {},
             "flight": {
-                "start_time": "2022-02-09T19:14:00Z",
-                "end_time": "2022-02-09T21:09:00Z",
-                "datasystems": ["ClearSky"],
+                "start_time": "2022-02-16T20:00:00Z",
+                "end_time": "2022-02-16T22:15:00Z",
+                "datasystems": ["ClearSky", "AutoPilot", "GroundStation"],
             },
             "postflight": {},
         },
         "datasystems": {
             "ClearSky": {
+                "payload": {
+                    "base_path": "./data/payload",
+                    "instruments": {
+                        "payload": {
+                            "format": "clear-payload-dat",
+                            "timebase": 1,
+                            "dims": ["time"],
+                            "variables": [
+                                ("CONCN", "CONCN", "CN concentration"),
+                                ("ABSRA", "ABSRA", "PSAP red sample"),
+                                ("ABSRB", "ABSRB", "PSAP red reference"),
+                                ("ABSGA", "ABSGA", "PSAP green sample"),
+                                ("ABSGB", "ABSGB", "PSAP green reference"),
+                                ("ABSBA", "ABSBA", "PSAP blue sample"),
+                                ("ABSBB", "ABSBB", "PSAP blue reference"),
+                                ("CHMPS", "CHMPS", "Chem filter number"),
+                                ("AT", "AT", "Air temp from slow probe"),
+                                ("RH", "RH", "RH from slow probe"),
+                                ("SMPFL", "SMPFL", "MCPC sample flow"),
+                                ("SMPFP", "SMPFP", "MCPC sample pump power settings"),
+                                ("SATFL", "SATFL", "MCPC Saturator flow"),
+                                (
+                                    "SATFP",
+                                    "SATFP",
+                                    "MCPC saturator pump power settings",
+                                ),
+                                ("ABSFL", "ABSFL", "PSAP flow"),
+                                (
+                                    "ABSFP",
+                                    "ABSFP",
+                                    "MCPC saturator pump power settings",
+                                ),
+                                ("CHMFL", "CHMFL", "Chem filter flow"),
+                                ("CHMFP", "CHMFP", "Chem filter pump power settings"),
+                                ("OPCFL", "POPS_FL", "POPS flow"),
+                                ("OPCFP", "OPCFP", "POPS pump power settings"),
+                                ("OPTCT", "OPTCT", "MCPC optics block temp"),
+                                ("OPTCP", "OPTCP", "MCPC optics block power"),
+                                ("CONDT", "CONDT", "MCPC condenser temperature"),
+                                ("CONDP", "CONDP", "MCPC condenser power settings"),
+                                ("SATTT", "SATTT", "MCPC Saturator top temp"),
+                                ("SATTP", "SATTP", "MCPC Saturator power setting"),
+                                ("SATBT", "SATBT", "MCPC Saturator bottom temp"),
+                                (
+                                    "SATBP",
+                                    "SATBP",
+                                    "MCPC Saurator bottom power setting",
+                                ),
+                                ("INLTT", "INLTT", "Temp at the LEF manifold"),
+                                (
+                                    "FILLC",
+                                    "FILLC",
+                                    "BuOH indicator, starts incrementing when BuOH is below full",
+                                ),
+                                ("CABNT", "CABNT", "Temp on the MCPC side of payload"),
+                                (
+                                    "PRESS",
+                                    "PRESS",
+                                    "Absolute pressure at in the flow manifold",
+                                ),
+                                ("PSAP-T", "PSAP_T", "PSAP Temp"),
+                                ("PSAP-RH", "PSAP-RH", "PSAP RH"),
+                                ("POPS-T", "POPS_T", "POPS Temp"),
+                                ("POPS-RH", "POPS_RH", "POPS RH"),
+                                ("FastT", "FastT", "Fast temp sensor"),
+                                ("FastRH", "FastRH", "Fast RH sensor"),
+                            ],
+                        }
+                    },
+                },
                 "pops": {
-                    "base_path": "/home/derek/Data/UAS/VP2022/ClearSky/SimFlight_03/pops/data",
+                    "base_path": "/home/derek/Data/UAS/UAS_Flights/ClearSky/VP2022/Flight_05/data/pops",
                     "instruments": {
                         "pops": {
                             "format": "pops-bin",
@@ -1926,7 +2042,7 @@ if __name__ == "__main__":
                             ],
                         }
                     },
-                }
+                },
             },
             "GroundStation": {
                 "uasground": {
@@ -1944,30 +2060,33 @@ if __name__ == "__main__":
                 }
             },
             "AutoPilot": {
-                "piccolo": {
-                    "base_path": "/home/derek/Data/autopilot/piccolo",
-                    "format": "piccolo-log",
-                    "timebase": 1,
-                    "dims": ["time"],
-                    "variables": [
-                        ("Lat", "latitude", ""),
-                        ("Lon", "longitude", ""),
-                        ("Height", "altitude", ""),
-                        ("GroundSpeed", "ground_speed", ""),
-                        ("Direction", "heading", ""),
-                        ("BaroAlt", "pressure_altitude", ""),
-                        ("TAS", "true_air_speed", ""),
-                        ("Roll", "roll", ""),
-                        ("Pitch", "pitch", ""),
-                        ("Yaw", "yaw", ""),
-                        ("MagHdg", "heading_mag", ""),
-                        ("AGL", "height_agl", ""),
-                    ],
+                "navigation": {
+                    "base_path": "./data/piccolo",
+                    "instruments": {
+                        "piccolo": {
+                            "format": "piccolo-log",
+                            "timebase": 1,
+                            "dims": ["time"],
+                            "variables": [
+                                ("Lat", "latitude", ""),
+                                ("Lon", "longitude", ""),
+                                ("Height", "altitude", ""),
+                                ("GroundSpeed", "ground_speed", ""),
+                                ("Direction", "heading", ""),
+                                ("BaroAlt", "pressure_altitude", ""),
+                                ("TAS", "true_air_speed", ""),
+                                ("Roll", "roll", ""),
+                                ("Pitch", "pitch", ""),
+                                ("Yaw", "yaw", ""),
+                                ("MagHdg", "heading_mag", ""),
+                                ("AGL", "height_agl", ""),
+                            ],
+                        }
+                    },
                 }
             },
         },
     }
-
     # de = DataEvent(preflight_config)
     de = DataEvent("flight", config=clear_config)
     print(de._data)
