@@ -232,12 +232,14 @@ class DataEvent:
                         # )
                         file_list = []
                         # for bf in base_file_list:
-                        bf = "payload/*.DAT"
+                        # bf = "payload/*.DAT"
+                        bf = "*.DAT"
                         pf = glob.glob(os.path.join(path, bf))
                         for f in pf:
                             file_list.append(f)
                         for dayfile in file_list:
-                            fname = os.path.join(path, dayfile)
+                            # fname = os.path.join(path, dayfile)
+                            fname = dayfile
                             data = self.load_clear_payload_dat_datafile(
                                 fname,
                                 # start_dt=self.get_start_dt(),
@@ -274,7 +276,8 @@ class DataEvent:
                         for f in pf:
                             file_list.append(f)
                         for dayfile in file_list:
-                            fname = os.path.join(path, dayfile)
+                            # fname = os.path.join(path, dayfile)
+                            fname = dayfile
                             data = self.load_pops_bin_datafile(
                                 fname,
                                 calds,
