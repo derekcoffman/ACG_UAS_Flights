@@ -30,65 +30,72 @@ if __name__ == "__main__":
 
     # print(data_paths)
 
-    if action == "create_flight":
+    if action == "create_flight" or action == "update_flight":
         if len(sys.argv) < 3:
             print("don't know what to create")
             exit
 
-    args = sys.argv[2:]
+        args = sys.argv[2:]
 
-    payload = "CloudySky"
-    project = "Default"
-    platform = "FVR-55"
-    flight_id = "Flight_XX"
+        payload = "CloudySky"
+        project = "Default"
+        platform = "FVR-55"
+        flight_id = "Flight_XX"
 
-    for arg in args:
-        option, value = arg.split("=")
-        if option == "--payload":
-            payload = value
-        elif option == "--project":
-            project = value
-        elif option == "--platform":
-            platform = value
-        elif option == "--flight_id":
-            flight_id = value
+        for arg in args:
+            option, value = arg.split("=")
+            if option == "--payload":
+                payload = value
+            elif option == "--project":
+                project = value
+            elif option == "--platform":
+                platform = value
+            elif option == "--flight_id":
+                flight_id = value
 
-    tmpl_name = "CloudySky_data_tmpl.ipynb"
-    data_folders = ["piccolo", "msems_inversion", "igor"]
-    if payload == "ClearSky":
-        tmpl_name = "ClearSky_data_tmpl.ipynb"
-        data_folders = ["payload", "pops", "sasp", "piccolo", "igor"]
+        tmpl_name = "CloudySky_data_tmpl.ipynb"
+        data_folders = ["piccolo", "msems_inversion", "igor"]
+        if payload == "ClearSky":
+            tmpl_name = "ClearSky_data_tmpl.ipynb"
+            data_folders = ["payload", "pops", "sasp", "piccolo", "igor"]
 
-    nb_name = tmpl_name.replace("tmpl", f"{project}_{flight_id}")
-    # print(nb_name)
+        nb_name = tmpl_name.replace("tmpl", f"{project}_{flight_id}")
+        # print(nb_name)
 
-    # create directories
-    try:
-        for fld in data_folders:
-            pth = os.path.join(payload, project, flight_id, "data", fld)
+        # create directories
+        try:
+            for fld in data_folders:
+                pth = os.path.join(payload, project, flight_id, "data", fld)
+                os.makedirs(pth)
+        except FileExistsError:
+            pass
+
+        try:
+            pth = os.path.join(payload, project, flight_id, "config")
             os.makedirs(pth)
-        pth = os.path.join(payload, project, flight_id, "config")
-        os.makedirs(pth)
-    except FileExistsError:
-        pass
+        except FileExistsError:
+            pass
 
-    # copy template to flight folder
-    shutil.copy(
-        os.path.join("templates", tmpl_name),
-        os.path.join(payload, project, flight_id, nb_name),
-    )
+        success = "updated"
+        if action == "create_flight":
+            # copy template to flight folder
+            shutil.copy(
+                os.path.join("templates", tmpl_name),
+                os.path.join(payload, project, flight_id, nb_name),
+            )
+            success = "created"
 
-    # create flight config
-    config = {
-        "payload_id": payload,
-        "project": project,
-        "platform": platform,
-        "flight_id": flight_id,
-        "data_paths": data_paths
-    }
+        # create flight config
+        config = {
+            "payload_id": payload,
+            "project": project,
+            "platform": platform,
+            "flight_id": flight_id,
+            "data_paths": data_paths
+        }
 
-    with open(os.path.join(payload, project, flight_id, "config", "settings.json"), "w") as f:
-        json.dump(config, f)
+        with open(os.path.join(payload, project, flight_id, "config", "settings.json"), "w") as f:
+            json.dump(config, f)
 
-    print(f"Flight created: {payload}/{project}/{flight_id}")
-    # os.path.join("templates", "CloudySky_data_tmpl.ipynb")
+        print(f"Flight {success}: {payload}/{project}/{flight_id}")
+        # os.path.join("templates", "CloudySky_data_tmpl.ipynb")
