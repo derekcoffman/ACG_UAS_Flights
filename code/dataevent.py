@@ -533,10 +533,15 @@ class DataEvent:
                             if current_time not in raw_data:
                                 raw_data[current_time] = dict()
                         elif "=" in p:
-                            name, val = p.split("=")
+                            try:
+                                name, val = p.split("=")
+                            except ValueError:
+                                print(f"split payload error: {p}")
+                                raw_data[current_time][name] = None
+                                continue
                             # if name not in raw_data[current_time]:
                             #     raw_data[current_time][name] = []
-                            if name == "POPS":
+                            if name == "POP":
                                 pops_data = val.split(",")
                                 raw_data[current_time][name] = [
                                     x for x in pops_data[1:]
@@ -544,6 +549,12 @@ class DataEvent:
                             elif name == "Date":
                                 curr_date = val
                                 raw_data[current_time][name] = val
+                            elif name == "AT":
+                                try:
+                                    raw_data[current_time][name] = float(val)
+                                except ValueError:
+                                    print(f"AT(string) = {val}")
+                                    raw_data[current_time][name] = None
                             else:
                                 raw_data[current_time][name] = val
 
