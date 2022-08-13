@@ -68,7 +68,7 @@ class DataEvent:
     def merge(self, tb=1, ds_list=None):
 
         # return self.get_data()["datasystem"][datasystem][controller][instrument]
-
+        print(f"ds_list = {ds_list}" )
         if ds_list is None:
             ds_list = []
             for dsystem_name, dsystem in self._data["datasystem"].items():
@@ -80,6 +80,7 @@ class DataEvent:
                         if ds.attrs["timebase"] == tb:
                             ds_list.append(dsname)
 
+        print(f"ds_list2 = {ds_list}" )
         start_dt = self._data["times"]["start"]["dt"]
         end_dt = self._data["times"]["end"]["dt"]
         freq = f"{tb}s"
@@ -91,13 +92,19 @@ class DataEvent:
         ds_out = xr.Dataset()
         ds_out_list = []
         for dsystem_name, dsystem in self._data["datasystem"].items():
+            print(dsystem_name)
             for cont_name, controller in dsystem.items():
                 if cont_name == "spec":
                     continue
+                print(cont_name)
                 for dsname, ds in controller.items():
+                    print(f"dsname = {dsname}")
                     if dsname in ds_list:
+                        print(f"dsname in list = {dsname}")
                         # print(dsname)
                         ds_1 = ds.sel(time=~ds.get_index("time").duplicated())
+                        if dsname == "navigation":
+                            print(f"ds_1 = {ds_1}")
                         ds_2 = (
                             ds_1.reindex(time=sorted(ds_1.time.values))
                             .resample(time=freq)
@@ -109,6 +116,8 @@ class DataEvent:
                                 {"time": dr}, method="nearest"  # , tolerance=tol
                             )
                         )
+                        if dsname == "navigation":
+                            print(ds_2)
         ds_out = xr.combine_by_coords(ds_out_list, combine_attrs="drop")
 
         # # add extra time arrays: mid, end
@@ -1195,7 +1204,9 @@ def calc_cdp_dN(cdp, speed=None):
         speed = xr.DataArray(np.full(cdp.dims["time"], 20.0), dims=["time"])
 
     # print(cdp.cdp_bin_counts)
-    cdp["cdp_dN"] = cdp.cdp_bin_counts * (0.24 * (1 / 100)) * speed * 100
+    # cdp["cdp_dN"] = cdp.cdp_bin_counts * (0.24 * (1 / 100)) * speed * 100
+    # fixed 12 Aug 2022
+    cdp["cdp_dN"] = cdp.cdp_bin_counts / ((0.24 * (1 / 100)) * speed * 100)
     # print(cdp.cdp_dN)
     # cdp.cdp_dN.attrs["units"] = "m/s"
 
