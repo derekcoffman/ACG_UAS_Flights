@@ -13,7 +13,13 @@ If multiple people are using, it would be best to create a new git branch for ea
 
 1. Create/check out payload/project branch
 2. From UAS_Flights directory run uasflights in bin directory: <br>
-```python bin/uasflights.py create_flight --payload="CloudySky" --project="KeyWest2022" --platform="FVR-55" --flight_id="Flight_01"```
+```
+python bin/uasflights.py create_flight \
+--payload="CloudySky" \ 
+--project="KeyWest2022" \
+--platform="FVR-55" \
+--flight_id="Flight_01"
+```
 3. Populate data folders as necessary 
 4. Run notebook server if necessary
 5. Open jupyter notebook to load/process/analyze data. Optionally, save to igor text file.
