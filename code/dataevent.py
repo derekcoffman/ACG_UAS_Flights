@@ -68,7 +68,7 @@ class DataEvent:
     def merge(self, tb=1, ds_list=None):
 
         # return self.get_data()["datasystem"][datasystem][controller][instrument]
-
+        print(f"ds_list = {ds_list}" )
         if ds_list is None:
             ds_list = []
             for dsystem_name, dsystem in self._data["datasystem"].items():
@@ -80,6 +80,7 @@ class DataEvent:
                         if ds.attrs["timebase"] == tb:
                             ds_list.append(dsname)
 
+        print(f"ds_list2 = {ds_list}" )
         start_dt = self._data["times"]["start"]["dt"]
         end_dt = self._data["times"]["end"]["dt"]
         freq = f"{tb}s"
@@ -91,24 +92,38 @@ class DataEvent:
         ds_out = xr.Dataset()
         ds_out_list = []
         for dsystem_name, dsystem in self._data["datasystem"].items():
+            print(dsystem_name)
             for cont_name, controller in dsystem.items():
                 if cont_name == "spec":
                     continue
+                print(cont_name)
                 for dsname, ds in controller.items():
+                    print(f"dsname = {dsname}")
                     if dsname in ds_list:
+                        print(f"dsname in list = {dsname}")
                         # print(dsname)
                         ds_1 = ds.sel(time=~ds.get_index("time").duplicated())
+                        if dsname == "navigation":
+                            print(f"ds_1 = {ds_1}")
                         ds_2 = (
                             ds_1.reindex(time=sorted(ds_1.time.values))
                             .resample(time=freq)
                             .mean(keep_attrs=True)
                         )
+                        # ds_2 = (
+                        #     ds_1.resample(time=freq)
+                        #     .reindex(time=sorted(ds_1.time.values))
+                        #     .resample(time=freq)
+                        #     .mean(keep_attrs=True)
+                        # )
                         ds_out_list.append(
                             # ds.reindex(time=sorted(ds.time.values)).sel(time=~ds.get_index("time").duplicated()).sel(time=slice(start_dt, end_dt)).reindex({"time": dr}, method="nearest", tolerance=tol)
                             ds_2.sel(time=slice(start_dt, end_dt)).reindex(
                                 {"time": dr}, method="nearest"  # , tolerance=tol
                             )
                         )
+                        if dsname == "navigation":
+                            print(ds_2)
         ds_out = xr.combine_by_coords(ds_out_list, combine_attrs="drop")
 
         # # add extra time arrays: mid, end
@@ -207,6 +222,7 @@ class DataEvent:
 
                         for dayfile in file_list:
                             fname = os.path.join(path, cont_name, name, dayfile)
+                            print(fname)
                             data = self.load_envds_datafile(fname, data=data)
 
                     elif data_format in ["piccolo-log"]:
@@ -231,6 +247,41 @@ class DataEvent:
                                 # end_dt=self.get_end_dt(),
                                 data=data,
                             )
+                            print(f"returned data: {len(data['Clock'])}")
+
+                        # build time wave after all files are loaded
+                        yr = data["Year"][0]
+                        mo = data["Month"][0]
+                        da = data["Day"][0]
+                        hr = data["Hours"][0]
+                        mi = data["Minutes"][0]
+                        se = data["Seconds"][0]
+                        millis = (se - int(se)) * 1000.0
+                        isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+                        dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.000000Z"
+                        print(dtstr)
+                        # start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
+                        data["time"] = []
+                        # for (clock, yr,mo,da,hr,mi,se) in zip(data["Clock"]["data"],data["Year"]["data"],data["Month"]["data"],data["Day"]["data"],data["Hours"]["data"],data["Minutes"]["data"],data["Seconds"]["data"]):
+                        for i, clck in enumerate(data["Clock"]):
+                            # dtstr = f"{int(yr)}-{int(mo)}-{int(da)}T{int(hr)}:{int(mi)}:{int(se)}Z"
+                            # ms = int(clock)
+                            # dt = (start_dt + timedelta(milliseconds=int(ms)))#.replace(microsecond=0)
+                            yr = data["Year"][i]
+                            mo = data["Month"][i]
+                            da = data["Day"][i]
+                            hr = data["Hours"][i]
+                            mi = data["Minutes"][i]
+                            se = data["Seconds"][i]
+                            if se < 0:
+                                se = 0
+                            elif se > 59.99:
+                                se = 59.99
+                            millis = (se - int(se)) * 1000.0
+                            dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.{int(millis):<06}Z"
+                            dt = datetime.strptime(dtstr, isofmt)
+                            data["time"].append(dt)
+
 
                     elif data_format in ["clear-payload-dat"]:
                         # base_file_list = get_clear_dat_file_list(
@@ -373,7 +424,7 @@ class DataEvent:
                             dup_index = data["time"].index(dt)
                             # print(f"len of data[time] = {len(data['time'])}")
                             data["time"].pop(dup_index)
-                            # print(f"\tlen of data[time] = {len(data['time'])}")
+                            print(f"\tlen of data[time] = {len(data['time'])}")
 
                         data["time"].append(dt)
                     except KeyError:
@@ -389,6 +440,7 @@ class DataEvent:
                             record = entry["DATA"]["MEASUREMENTS"][key]["VALUE"]
                             data[key].append(record)
                         except KeyError:
+                            print(f"{key}, {dup_index}")
                             data[key].append(None)
                         except TypeError:
                             print(f"{key}, {dat}")
@@ -404,6 +456,10 @@ class DataEvent:
     def load_piccolo_datafile(self, file_name, data=None):
         if data is None:
             data = dict()
+        offset = 0
+        if "Clock" in data:
+            offset = len(data["Clock"]) - 1
+            print(f"offset = {offset}")
         # data["extra_coords"] = dict()
         need_meta = True
         metdata = None
@@ -425,7 +481,8 @@ class DataEvent:
                     # print(f"{parts}, {len(parts)}")
                     name = parts[0].replace("<", "")
                     varlist.append(name)
-                    data[name] = []
+                    if name not in data:
+                        data[name] = []
                     if len(parts) > 1 and parts[1]:
                         units = parts[1].replace("[", "").replace("]", "")
                         if "metadata" not in data:
@@ -438,65 +495,78 @@ class DataEvent:
 
                 for line in f:
                     parts = line.rstrip().split(" ")
-
+                    if len(parts) < 10:
+                        continue
                     for name, val in zip(varlist, parts):
                         # sanity check for date
-                        # print(parts[1], start_dt)
+                        # print(parts[1], ds_start_dt)
                         if (
                             int(parts[1]) < ds_start_dt.year
                             or int(parts[1]) > ds_end_dt.year
                         ):
+                            # print(parts[0])
                             continue
                         try:
                             data[name].append(float(val))
                         except ValueError:
                             data[name].append(None)
 
-                base_ms = data["Clock"][0]
-                # fulldate = fulldate + datetime.timedelta(milliseconds=500)
-                yr = data["Year"][0]
-                mo = data["Month"][0]
-                da = data["Day"][0]
-                hr = data["Hours"][0]
-                mi = data["Minutes"][0]
-                se = data["Seconds"][0]
-                millis = (se - int(se)) * 1000.0
-                isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
-                dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.000000Z"
-                # start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
-                data["time"] = []
-                # for (clock, yr,mo,da,hr,mi,se) in zip(data["Clock"]["data"],data["Year"]["data"],data["Month"]["data"],data["Day"]["data"],data["Hours"]["data"],data["Minutes"]["data"],data["Seconds"]["data"]):
-                for i, clck in enumerate(data["Clock"]):
-                    # dtstr = f"{int(yr)}-{int(mo)}-{int(da)}T{int(hr)}:{int(mi)}:{int(se)}Z"
-                    # ms = int(clock)
-                    # dt = (start_dt + timedelta(milliseconds=int(ms)))#.replace(microsecond=0)
-                    yr = data["Year"][i]
-                    mo = data["Month"][i]
-                    da = data["Day"][i]
-                    hr = data["Hours"][i]
-                    mi = data["Minutes"][i]
-                    se = data["Seconds"][i]
-                    if se < 0:
-                        se = 0
-                    elif se > 59.99:
-                        se = 59.99
-                    millis = (se - int(se)) * 1000.0
-                    dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.{int(millis):<06}Z"
-                    dt = datetime.strptime(dtstr, isofmt)
-                    # dup_index = 99999
-                    # while dup_index > 0:
-                    #     # dup_index = -1
-                    #     if dt in data["time"]:
-                    #         dup_index = data["time"].index(dt)
-                    #         for key, dat in data.items():
-                    #             if key == "metadata":
-                    #                 continue
-                    #             data[key].pop(dup_index)
-                    #     else:
-                    #         dup_index = -1
+                print(f"data: {len(data['Clock'])}")
+                # base_ms = data["Clock"][0]
+                # # fulldate = fulldate + datetime.timedelta(milliseconds=500)
+                # yr = data["Year"][0]
+                # mo = data["Month"][0]
+                # da = data["Day"][0]
+                # hr = data["Hours"][0]
+                # mi = data["Minutes"][0]
+                # se = data["Seconds"][0]
+                # # yr = data["Year"][offset]
+                # # mo = data["Month"][offset]
+                # # da = data["Day"][offset]
+                # # hr = data["Hours"][offset]
+                # # mi = data["Minutes"][offset]
+                # # se = data["Seconds"][offset]
+                # millis = (se - int(se)) * 1000.0
+                # isofmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+                # dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.000000Z"
+                # # start_dt = datetime.strptime(dtstr, isofmt).replace(microsecond=0)
+                # data["time"] = []
+                # # for (clock, yr,mo,da,hr,mi,se) in zip(data["Clock"]["data"],data["Year"]["data"],data["Month"]["data"],data["Day"]["data"],data["Hours"]["data"],data["Minutes"]["data"],data["Seconds"]["data"]):
+                # for i, clck in enumerate(data["Clock"]):
+                #     # dtstr = f"{int(yr)}-{int(mo)}-{int(da)}T{int(hr)}:{int(mi)}:{int(se)}Z"
+                #     # ms = int(clock)
+                #     # dt = (start_dt + timedelta(milliseconds=int(ms)))#.replace(microsecond=0)
+                #     yr = data["Year"][i]
+                #     mo = data["Month"][i]
+                #     da = data["Day"][i]
+                #     hr = data["Hours"][i]
+                #     mi = data["Minutes"][i]
+                #     se = data["Seconds"][i]
+                #     if se < 0:
+                #         se = 0
+                #     elif se > 59.99:
+                #         se = 59.99
+                #     millis = (se - int(se)) * 1000.0
+                #     dtstr = f"{int(yr):02}-{int(mo):02}-{int(da):02}T{int(hr):02}:{int(mi):02}:{int(se):02}.{int(millis):<06}Z"
+                #     dt = datetime.strptime(dtstr, isofmt)
+                #     # dup_index = 99999
+                #     # while dup_index > 0:
+                #     #     # dup_index = -1
+                #     #     if dt in data["time"]:
+                #     #         dup_index = data["time"].index(dt)
+                #     #         for key, dat in data.items():
+                #     #             if key == "metadata":
+                #     #                 continue
+                #     #             data[key].pop(dup_index)
+                #     #     else:
+                #     #         dup_index = -1
 
-                    # data["time"].append((start_dt + timedelta(milliseconds=int(ms))).replace(microsecond=0))
-                    data["time"].append(dt)
+                #     # data["time"].append((start_dt + timedelta(milliseconds=int(ms))).replace(microsecond=0))
+                #     data["time"].append(dt)
+
+                # for name in data.keys():
+                #     print(f"data[{name}]: {len(data[name])}")
+                # print(f"data[time]: {len(data['time'])}")
             # res = [idx for idx, val in enumerate(data["time"]) if val in data["time"][:idx]]
         except FileNotFoundError:
             print(f"load piccolo: file not found: {file_name}")
@@ -533,10 +603,15 @@ class DataEvent:
                             if current_time not in raw_data:
                                 raw_data[current_time] = dict()
                         elif "=" in p:
-                            name, val = p.split("=")
+                            try:
+                                name, val = p.split("=")
+                            except ValueError:
+                                print(f"split payload error: {p}")
+                                raw_data[current_time][name] = None
+                                continue
                             # if name not in raw_data[current_time]:
                             #     raw_data[current_time][name] = []
-                            if name == "POPS":
+                            if name == "POP":
                                 pops_data = val.split(",")
                                 raw_data[current_time][name] = [
                                     x for x in pops_data[1:]
@@ -544,6 +619,12 @@ class DataEvent:
                             elif name == "Date":
                                 curr_date = val
                                 raw_data[current_time][name] = val
+                            elif name == "AT":
+                                try:
+                                    raw_data[current_time][name] = float(val)
+                                except ValueError:
+                                    print(f"AT(string) = {val}")
+                                    raw_data[current_time][name] = None
                             else:
                                 raw_data[current_time][name] = val
 
@@ -1184,7 +1265,9 @@ def calc_cdp_dN(cdp, speed=None):
         speed = xr.DataArray(np.full(cdp.dims["time"], 20.0), dims=["time"])
 
     # print(cdp.cdp_bin_counts)
-    cdp["cdp_dN"] = cdp.cdp_bin_counts * (0.24 * (1 / 100)) * speed * 100
+    # cdp["cdp_dN"] = cdp.cdp_bin_counts * (0.24 * (1 / 100)) * speed * 100
+    # fixed 12 Aug 2022
+    cdp["cdp_dN"] = cdp.cdp_bin_counts / ((0.24 * (1 / 100)) * speed * 100)
     # print(cdp.cdp_dN)
     # cdp.cdp_dN.attrs["units"] = "m/s"
 
